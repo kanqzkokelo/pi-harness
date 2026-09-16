@@ -6,3 +6,4 @@ bench/valid/out/
 bench/swe200/repos/
 bench/swe200/patches/
 bench/swe200/out/
+bench/valid/quick*/

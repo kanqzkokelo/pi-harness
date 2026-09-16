@@ -86,8 +86,10 @@ export const promptsForArm: Record<Arm, (t: TaskDef) => string> = {
 };
 
 export async function main() {
-  const root = join(process.cwd(), 'bench', 'valid', 'tasks');
-  const { manifestTasks } = buildTasks(root, VALID_SEEDS);
+  const quickN = Number(process.env.QUICK_N ?? 0);
+  const seeds = quickN > 0 ? VALID_SEEDS.slice(0, quickN) : VALID_SEEDS;
+  const root = join(process.cwd(), 'bench', 'valid', quickN > 0 ? 'quick' + quickN : 'tasks');
+  const { manifestTasks } = buildTasks(root, seeds);
   for (const t of manifestTasks) assertPromptParity(t.brief);
   const mkExec = (fn: (t: TaskDef) => Promise<{ pass: boolean; tokens: number; ms: number; tool_calls: number }>): Executor => fn;
 
@@ -142,7 +144,7 @@ export async function main() {
     return { pass: ACCEPT(res.best, parent.suite_pass_rate), tokens, ms: Date.now() - t0, tool_calls: calls };
   });
 
-  const out = join(process.cwd(), 'bench', 'valid', 'out');
+  const out = join(process.cwd(), 'bench', 'valid', quickN > 0 ? 'quick' + quickN + '-out' : 'out');
   const { trials } = await runAblation({ tasks: manifestTasks }, { stock, 'beam-only': beamOnly, 'frozen-only': frozenOnly, 'beam+frozen': beamFrozen }, out, { prompts: promptsForArm });
   console.log(trials.map((x) => `${x.instance}/${x.arm}: pass=${x.pass} tok=${x.tokens} calls=${x.tool_calls}`).join('\n'));
 }
