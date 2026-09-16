@@ -89,7 +89,10 @@ export async function main() {
     execFileSync('git', ['config', 'user.email', 'p@p'], { cwd: work }); execFileSync('git', ['config', 'user.name', 'p'], { cwd: work });
     const frozen = [{ path: join(work, basename(t.frozen.path)), sha: t.frozen.sha }];
     const res = await runBeam(frozen, {
-      repoDir: work, suiteCmd: 'true', tokenBudget: budgetOf(t), spent: () => tokens,
+      repoDir: work, suiteCmd: 'true',
+      ...(stockTok[t.id] !== undefined
+        ? { tokenBudget: stockTok[t.id] * 2, estBranch: stockTok[t.id], spent: () => tokens }
+        : { spent: () => tokens }),
       strategies: { A: strat('minimal patch'), B: strat('alternate approach'), C: strat('edge cases first') },
     });
     return { pass: res.best.test_results.frozen_pass, tokens, ms: Date.now() - t0, tool_calls: calls };

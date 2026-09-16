@@ -21,6 +21,9 @@ export interface BeamOpts {
   /** Hard token cap: stop spawning when spent() >= tokenBudget. */
   tokenBudget?: number;
   spent?: () => number;
+  /** Estimated next-branch cost: spawn iff spent()+estBranch <= tokenBudget.
+   *  Without it, a ~20k branch can slip under a 45k cap and land at 62k. */
+  estBranch?: number;
 }
 /**
  * Controlled beam: P1 A/B/C from SAME parent S0 -> verify -> rank.
@@ -60,10 +63,13 @@ export async function runBeam(frozen: FrozenTest[], opts: BeamOpts) {
   };
   const earlyStop = opts.earlyStop ?? true;
   const overBudget = () => opts.tokenBudget !== undefined && opts.spent !== undefined && opts.spent() >= opts.tokenBudget;
+  const overBudgetNext = () =>
+    opts.tokenBudget !== undefined && opts.spent !== undefined &&
+    opts.spent() + (opts.estBranch ?? 0) > opts.tokenBudget;
   const runPhase = async (phase: string, strats: Record<'A' | 'B' | 'C', Strategy>): Promise<{ node: StateNode; diff: number }[]> => {
     const out: { node: StateNode; diff: number }[] = [];
     for (const b of ['A', 'B', 'C'] as BranchId[]) {
-      if (overBudget()) break;
+      if (overBudget() || overBudgetNext()) break;
       const r = await mk(phase, b, strats[b]);
       out.push(r);
       if (earlyStop && ACCEPT(r.node, parentRate)) break;
