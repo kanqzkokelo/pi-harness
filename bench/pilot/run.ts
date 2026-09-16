@@ -85,6 +85,7 @@ export async function main() {
     const frozen = [{ path: join(work, basename(t.frozen.path)), sha: t.frozen.sha }];
     const res = await runBeam(frozen, {
       repoDir: work, suiteCmd: 'true',
+      parentSuitePassRate: verify(work, frozen, 'true').suite_pass_rate,
       strategies: { A: strat('minimal patch'), B: strat('alternate approach'), C: strat('edge cases first') },
     });
     return { pass: res.best.test_results.frozen_pass, tokens, ms: Date.now() - t0, tool_calls: calls };

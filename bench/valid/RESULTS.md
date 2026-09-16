@@ -1,4 +1,16 @@
-# Validation results — 2026-09-16, model `opencode/muse-spark-1.3-contributor-free`
+# Validation results — SUPERSEDED (historical/pilot data only)
+
+> The 11/11 below ran under a flawed protocol and is NOT evidence of
+> benchmark performance. Two compounding defects, found during review:
+> 1. `frozen-only` received an extra hidden-test hint (ablation contamination).
+> 2. `py_compile .` fails unconditionally (EISDIR), so the lint gate was
+>    always false — and only the beam arm bypassed lint in its pass criterion
+>    (`frozen_pass` alone vs `frozen && lint` for all other arms). The
+>    ✗/✗/✗/✓ pattern was largely artifact, not architecture effect.
+> Corrected re-run below (or in progress) under identical-prompts +
+> working-lint + unified ACCEPT-mirroring pass criteria.
+
+## Old (void) numbers — 2026-09-16, contributor-free
 
 12 tasks × 4 arms = 48 trials. 1 task void (v-merge: rate-limit zero-token across all arms, no measurement). n=11 valid.
 Raw: `bench/valid/out/` (gitignored). Shared manifest, `tok_unit: pi-totalTokens` on all trials.

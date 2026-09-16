@@ -8,10 +8,13 @@ export interface StateNode {
   id: string; // git sha
   parent_id: string | null;
   branch_id: BranchId;
-  snapshot_ref: string; // git sha + worktree/docker tag
+  /** Persistent snapshot identity, e.g. `git:<sha>`. Never an ephemeral path. */
+  snapshot_ref: string;
+  /** Ephemeral runtime metadata (worktree dirs, containers). Not identity. */
+  runtime?: { worktree?: string; container?: string };
   subtasks: Subtask[];
   facts: string[]; // append-only, tool-grounded
-  actions: ActionRec[];
+  actions: ActionRec[]; // MVP: intentionally empty (no tool-trace capture); cost.* is real
   test_results: TestResults;
   cost: Cost;
 }

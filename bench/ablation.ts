@@ -6,9 +6,11 @@ export const ARMS: Arm[] = ['stock', 'beam-only', 'frozen-only', 'beam+frozen'];
 
 /** Frozen artifact pinned per task. Same bytes+sha for all arms. */
 export interface FrozenArtifact { path: string; sha: string }
-/** One task, fully pinned. All arms share identical fields. */
+/** One task, fully pinned. All arms share this identical object. */
 export interface TaskDef {
   id: string; repoDir: string; base_commit: string;
+  /** Same user-visible bug description for every arm. */
+  brief: string;
   frozen: FrozenArtifact; model: string; suiteCmd: string;
   token_budget: number; env: { image: string; seed: number };
 }
@@ -28,8 +30,40 @@ export interface TaskDelta {
 }
 export type Executor = (t: TaskDef) => Promise<{ pass: boolean; tokens: number; ms: number; tool_calls: number }>;
 
+/** Preflight fairness gate: every task asserts identical arm inputs; arm behavior differs only via harness config. Writes machine-readable failure, aborts pre-trial on mismatch. */
+export function preflight(manifest: Manifest, outDir: string, prompts?: Record<Arm, (t: TaskDef) => string>): void {
+  const failures: Record<string, unknown>[] = [];
+  if (manifest.tasks.length === 0) failures.push({ task: '*', field: 'tasks', issue: 'empty manifest' });
+  for (const t of manifest.tasks) {
+    const req: [string, unknown][] = [
+      ['base_commit', t.base_commit], ['brief', t.brief], ['model', t.model],
+      ['seed', t.env?.seed], ['image', t.env?.image], ['frozen.sha', t.frozen?.sha],
+      ['frozen.path', t.frozen?.path], ['token_budget', t.token_budget], ['suiteCmd', t.suiteCmd],
+    ];
+    for (const [field, v] of req) {
+      if (v === undefined || v === null || v === '' || v === 0) failures.push({ task: t.id, field, issue: 'missing-or-empty' });
+    }
+    if (prompts) {
+      const missing = ARMS.filter((a) => typeof prompts[a] !== 'function');
+      if (missing.length > 0) failures.push({ task: t.id, field: 'prompts', issue: 'missing arms: ' + missing.join(',') });
+      else {
+        const p = Object.fromEntries(ARMS.map((a) => [a, prompts[a](t)])) as Record<Arm, string>;
+        if (p.stock !== p['frozen-only']) {
+          failures.push({ task: t.id, field: 'prompt.stock-vs-frozen-only', issue: 'prompts differ', stock: p.stock, frozenOnly: p['frozen-only'] });
+        }
+      }
+    }
+  }
+  if (failures.length > 0) {
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, 'preflight-fail.json'), JSON.stringify(failures, null, 2));
+    throw new Error('preflight failed (' + failures.length + '): see ' + join(outDir, 'preflight-fail.json'));
+  }
+}
+
 /** Manifest-driven: every arm gets same task def (commit, frozen, model, env, budget). */
-export async function runAblation(manifest: Manifest, executors: Record<Arm, Executor>, outDir: string): Promise<{ trials: Trial[]; deltas: TaskDelta[] }> {
+export async function runAblation(manifest: Manifest, executors: Record<Arm, Executor>, outDir: string, opts: { prompts?: Record<Arm, (t: TaskDef) => string> } = {}): Promise<{ trials: Trial[]; deltas: TaskDelta[] }> {
+  preflight(manifest, outDir, opts.prompts);
   mkdirSync(outDir, { recursive: true });
   const trials: Trial[] = [];
   for (const t of manifest.tasks) {

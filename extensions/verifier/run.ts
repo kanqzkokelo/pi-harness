@@ -1,8 +1,43 @@
 import { execFileSync } from 'node:child_process';
+import { lintRepo } from './lint.ts';
 import type { FrozenTest } from './freeze.ts';
 import { verifyIntact } from './freeze.ts';
 
 export interface Verdict { frozen_pass: boolean; suite_pass_rate: number; lint: boolean; notes: string }
+
+export interface PytestSummary { passed: number; failed: number; skipped: number; errors: number }
+
+/** Robust pytest short-summary parser.
+ *
+ *  Rate definition: passed / (passed + failed + errors). Skipped tests are
+ *  excluded from the denominator (they neither pass nor fail). Errors count
+ *  as failures. No countable outcome (collection error, zero tests,
+ *  unparseable output) yields rate 0.
+ *
+ *  Handles: `20 passed`, `1 failed, 20 passed`, `20 passed, 1 failed`,
+ *  `1 failed, 19 passed, 2 skipped`, `20 passed, 1 skipped`, `1 error`. */
+export function parsePytestSummary(out: string): { summary: PytestSummary; rate: number } {
+  const summary: PytestSummary = { passed: 0, failed: 0, skipped: 0, errors: 0 };
+  const add = (text: string): boolean => {
+    let found = false;
+    for (const m of text.matchAll(/(\d+)\s+(passed|failed|skipped|error|errors)\b/g)) {
+      found = true;
+      const n = Number(m[1]);
+      if (m[2] === 'passed') summary.passed += n;
+      else if (m[2] === 'failed') summary.failed += n;
+      else if (m[2] === 'skipped') summary.skipped += n;
+      else summary.errors += n;
+    }
+    return found;
+  };
+  // Authoritative: the last `=== ... ===` result line (e.g.
+  // `=== 1 failed, 20 passed in 3.2s ===`). Fall back to whole-output scan
+  // when pytest never printed one (collection error, crash).
+  const resultLines = out.match(/^=+.*(passed|failed|error).*?=+\s*$/mg) ?? [];
+  if (resultLines.length === 0 || !add(resultLines[resultLines.length - 1])) add(out);
+  const denom = summary.passed + summary.failed + summary.errors;
+  return { summary, rate: denom > 0 ? summary.passed / denom : 0 };
+}
 const run = (cmd: string, args: string[], cwd: string, timeout = 120000): { ok: boolean; out: string } => {
   try {
     const out = execFileSync(cmd, args, { cwd, encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -22,14 +57,7 @@ export function verify(repoDir: string, frozen: FrozenTest[], suiteCmd = 'pytest
   }
   const [s, ...sArgs] = suiteCmd.split(' ');
   const suite = run(s, sArgs, repoDir);
-  const m = suite.out.match(/(\d+)\s+passed.*?(\d+)\s+failed|(\d+)\s+failed.*?(\d+)\s+passed|(\d+)\s+passed/);
-  let rate = suite.ok ? 1 : 0;
-  if (m) {
-    const nums = m.slice(1).filter(Boolean).map(Number);
-    const total = nums.reduce((a, b) => a + b, 0);
-    const passed = suite.out.includes('passed') ? nums[0] : 0;
-    if (total > 0) rate = passed / total;
-  }
-  const lint = run('python3', ['-m', 'py_compile', '.'], repoDir).ok;
+  const { rate } = parsePytestSummary(suite.out);
+  const lint = lintRepo(repoDir);
   return { frozen_pass, suite_pass_rate: rate, lint, notes: suite.out.slice(-500) };
 }

@@ -56,7 +56,7 @@ export function buildTasks(root: string, seeds: TaskSeed[]): { manifestTasks: Ta
     g(['add', '-A']); g(['commit', '-qm', 't0']);
     const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
     manifestTasks.push({
-      id: t.id, repoDir: dir, base_commit: sha,
+      id: t.id, repoDir: dir, base_commit: sha, brief: t.brief,
       frozen: { path: frozen.path, sha: frozen.sha },
       model: MODEL, suiteCmd: 'python3 -m pytest test_dev.py -q --tb=line',
       token_budget: TOKEN_BUDGET, env: { image: 'local', seed: 7 },
