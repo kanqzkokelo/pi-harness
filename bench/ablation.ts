@@ -17,6 +17,8 @@ export interface Trial extends Record<string, unknown> {
   instance: string; arm: Arm; pass: boolean;
   tokens: number; ms: number; tool_calls: number;
   model: string; base_commit: string; frozen_sha: string; seed: number;
+  /** Token unit proof: all arms share one extractor. */
+  tok_unit: 'pi-totalTokens';
 }
 /** Per-task deltas vs stock. Machine-readable. */
 export interface TaskDelta {
@@ -33,7 +35,7 @@ export async function runAblation(manifest: Manifest, executors: Record<Arm, Exe
   for (const t of manifest.tasks) {
     for (const arm of ARMS) {
       const r = await executors[arm](t);
-      const trial: Trial = { instance: t.id, arm, pass: r.pass, tokens: r.tokens, ms: r.ms, tool_calls: r.tool_calls, model: t.model, base_commit: t.base_commit, frozen_sha: t.frozen.sha, seed: t.env.seed };
+      const trial: Trial = { instance: t.id, arm, pass: r.pass, tokens: r.tokens, ms: r.ms, tool_calls: r.tool_calls, model: t.model, base_commit: t.base_commit, frozen_sha: t.frozen.sha, seed: t.env.seed, tok_unit: 'pi-totalTokens' };
       trials.push(trial);
       appendFileSync(join(outDir, 'trials.jsonl'), JSON.stringify(trial) + '\n');
     }

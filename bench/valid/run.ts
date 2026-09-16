@@ -9,8 +9,11 @@ import { buildTasks } from '../pilot/tasks.ts';
 import { VALID_SEEDS } from './seeds.ts';
 
 const MODEL_FLAG = 'opencode/muse-spark-1.3-contributor-free';
-/** Pre-registered cap ≈2× typical single-call cost. Enforced inside beam. */
-const BEAM_BUDGET = 45000;
+/** Per-task cap = 2× measured stock tokens (stock arm always runs first per task).
+ *  Same unit everywhere: pi --mode json `totalTokens`, single extractor piCall. */
+const FALLBACK_BUDGET = 45000;
+const stockTok: Record<string, number> = {};
+const budgetOf = (t: TaskDef): number => (stockTok[t.id] !== undefined ? stockTok[t.id] * 2 : FALLBACK_BUDGET);
 
 function piCall(dir: string, prompt: string, timeoutMs = 300000): { out: string; tokens: number } {
   let raw = '';
@@ -53,12 +56,15 @@ export async function main() {
   const stock: Executor = mkExec(async (t) => {
     const d = freshClone(t); const t0 = Date.now();
     const r = piCall(d, `Fix the bug in this repo by editing files directly. Bug: ${briefs[t.id]} Keep changes minimal. Do not modify test files.`);
+    stockTok[t.id] = r.tokens;
     return { pass: passOf(d, t), tokens: r.tokens, ms: Date.now() - t0, tool_calls: 1 };
   });
 
   const beamOnly: Executor = mkExec(async (t) => {
     const t0 = Date.now(); let tokens = 0, calls = 0, best = false;
+    const cap = budgetOf(t);
     for (const s of ['minimal patch, smallest diff', 'alternate approach, rewrite function body', 'repro-driven, handle edge cases first']) {
+      if (tokens >= cap) break;
       const d = freshClone(t);
       const r = piCall(d, STRAT_PROMPT(briefs[t.id], s)); tokens += r.tokens; calls++;
       const dg = devPass(d);
@@ -83,7 +89,7 @@ export async function main() {
     execFileSync('git', ['config', 'user.email', 'p@p'], { cwd: work }); execFileSync('git', ['config', 'user.name', 'p'], { cwd: work });
     const frozen = [{ path: join(work, basename(t.frozen.path)), sha: t.frozen.sha }];
     const res = await runBeam(frozen, {
-      repoDir: work, suiteCmd: 'true', tokenBudget: BEAM_BUDGET, spent: () => tokens,
+      repoDir: work, suiteCmd: 'true', tokenBudget: budgetOf(t), spent: () => tokens,
       strategies: { A: strat('minimal patch'), B: strat('alternate approach'), C: strat('edge cases first') },
     });
     return { pass: res.best.test_results.frozen_pass, tokens, ms: Date.now() - t0, tool_calls: calls };
