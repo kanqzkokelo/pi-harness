@@ -1,3 +1,5 @@
 bench/pilot/tasks/
 bench/pilot/out/
 *.db
+bench/valid/tasks/
+bench/valid/out/

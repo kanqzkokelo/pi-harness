@@ -7,9 +7,9 @@ import type { TaskDef } from '../ablation.ts';
 export const MODEL = 'opencode/muse-spark-1.3-contributor-free';
 export const TOKEN_BUDGET = 60000;
 
-interface TaskSeed { id: string; file: string; buggy: string; frozenName: string; frozenSrc: string; devName: string; devSrc: string; brief: string }
+export interface TaskSeed { id: string; file: string; buggy: string; frozenName: string; frozenSrc: string; devName: string; devSrc: string; brief: string; extraFiles?: Record<string, string> }
 
-const TASKS: TaskSeed[] = [
+export const PILOT_SEEDS: TaskSeed[] = [
   {
     id: 'pilot-range-sum', file: 'rsum.py',
     buggy: 'def rsum(n):\n    return sum(range(n))\n',
@@ -40,15 +40,16 @@ const TASKS: TaskSeed[] = [
 ];
 
 /** Scaffold task repos, commit base+T0, return manifest (model pinned). */
-export function buildPilot(root: string): { manifestTasks: TaskDef[]; briefs: Record<string, string> } {
+export function buildTasks(root: string, seeds: TaskSeed[]): { manifestTasks: TaskDef[]; briefs: Record<string, string> } {
   const manifestTasks: TaskDef[] = [];
   const briefs: Record<string, string> = {};
-  for (const t of TASKS) {
+  for (const t of seeds) {
     const dir = join(root, t.id);
     mkdirSync(dir, { recursive: true });
     const g = (a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
     if (!existsSync(join(dir, '.git'))) { g(['init', '-q']); g(['config', 'user.email', 'p@p']); g(['config', 'user.name', 'p']); }
     writeFileSync(join(dir, t.file), t.buggy);
+    for (const [name, src] of Object.entries(t.extraFiles ?? {})) writeFileSync(join(dir, name), src);
     writeFileSync(join(dir, t.devName), t.devSrc);
     g(['add', '-A']); g(['commit', '-qm', 'base', '--allow-empty']);
     const frozen = freezeTest(dir, t.frozenName, t.frozenSrc);
@@ -64,3 +65,5 @@ export function buildPilot(root: string): { manifestTasks: TaskDef[]; briefs: Re
   }
   return { manifestTasks, briefs };
 }
+
+export const buildPilot = (root: string) => buildTasks(root, PILOT_SEEDS);

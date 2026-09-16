@@ -4,7 +4,7 @@ import { join, basename } from 'node:path';
 import { openStore } from '../state-graph/store.ts';
 import { commitNode, worktreeAdd, worktreeRemove, currentSha, diffSize } from '../state-graph/gitops.ts';
 import type { StateNode, BranchId } from '../state-graph/nodes.ts';
-import { emptyResults, zeroCost } from '../state-graph/nodes.ts';
+import { emptyResults, zeroCost, ACCEPT } from '../state-graph/nodes.ts';
 import { verify } from '../verifier/run.ts';
 import { rank, anyAccepts } from '../verifier/select.ts';
 import type { FrozenTest } from '../verifier/freeze.ts';
@@ -16,6 +16,11 @@ export interface BeamOpts {
   strategies: Record<'A' | 'B' | 'C', Strategy>;
   retryStrategies?: Record<'A' | 'B' | 'C', Strategy>;
   subtasks?: StateNode['subtasks'];
+  /** Early-stop: halt phase once a branch meets ACCEPT. Default true. */
+  earlyStop?: boolean;
+  /** Hard token cap: stop spawning when spent() >= tokenBudget. */
+  tokenBudget?: number;
+  spent?: () => number;
 }
 /**
  * Controlled beam: P1 A/B/C from SAME parent S0 -> verify -> rank.
@@ -53,15 +58,28 @@ export async function runBeam(frozen: FrozenTest[], opts: BeamOpts) {
       return { node, diff: diffSize(repoDir, parentSha, sha) };
     } finally { worktreeRemove(repoDir, wt); }
   };
-  const p1 = [await mk('P1', 'A', opts.strategies.A), await mk('P1', 'B', opts.strategies.B), await mk('P1', 'C', opts.strategies.C)];
+  const earlyStop = opts.earlyStop ?? true;
+  const overBudget = () => opts.tokenBudget !== undefined && opts.spent !== undefined && opts.spent() >= opts.tokenBudget;
+  const runPhase = async (phase: string, strats: Record<'A' | 'B' | 'C', Strategy>): Promise<{ node: StateNode; diff: number }[]> => {
+    const out: { node: StateNode; diff: number }[] = [];
+    for (const b of ['A', 'B', 'C'] as BranchId[]) {
+      if (overBudget()) break;
+      const r = await mk(phase, b, strats[b]);
+      out.push(r);
+      if (earlyStop && ACCEPT(r.node, parentRate)) break;
+    }
+    return out;
+  };
+  const p1 = await runPhase('P1', opts.strategies);
   let ranked = rank(p1);
   let tried = 1;
-  if (!anyAccepts(ranked, parentRate) && opts.retryStrategies) {
-    const p2 = [await mk('P2', 'A', opts.retryStrategies.A), await mk('P2', 'B', opts.retryStrategies.B), await mk('P2', 'C', opts.retryStrategies.C)];
+  if (p1.length > 0 && !anyAccepts(ranked, parentRate) && opts.retryStrategies && !overBudget()) {
+    const p2 = await runPhase('P2', opts.retryStrategies);
     ranked = rank([...p1, ...p2]);
     tried = 2;
   }
   const best = ranked[0];
+  if (!best) throw new Error('beam: no branches ran (budget exhausted before P1)');
   const ms = Date.now() - t0;
   store.close();
   void diffSize;
