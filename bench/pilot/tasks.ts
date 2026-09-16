@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { freezeTest } from '../../extensions/verifier/freeze.ts';
@@ -47,7 +47,7 @@ export function buildPilot(root: string): { manifestTasks: TaskDef[]; briefs: Re
     const dir = join(root, t.id);
     mkdirSync(dir, { recursive: true });
     const g = (a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
-    try { g(['rev-parse']); } catch { g(['init', '-q']); g(['config', 'user.email', 'p@p']); g(['config', 'user.name', 'p']); }
+    if (!existsSync(join(dir, '.git'))) { g(['init', '-q']); g(['config', 'user.email', 'p@p']); g(['config', 'user.name', 'p']); }
     writeFileSync(join(dir, t.file), t.buggy);
     writeFileSync(join(dir, t.devName), t.devSrc);
     g(['add', '-A']); g(['commit', '-qm', 'base', '--allow-empty']);
