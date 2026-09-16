@@ -1,3 +1,12 @@
-import {ACCEPT} from '../state-graph/nodes.ts';import type {StateNode} from '../state-graph/nodes.ts';
-export const winner=(ns:StateNode[],parentRate:number)=>[...ns].sort((a,b)=>Number(b.test_results.frozen_pass)-Number(a.test_results.frozen_pass)||b.test_results.suite_pass_rate-a.test_results.suite_pass_rate)[0];
-export const anyAccepts=(ns:StateNode[],parentRate:number)=>ns.some(n=>ACCEPT(n,parentRate));
+import { ACCEPT, type StateNode } from '../state-graph/nodes.ts';
+
+/** Deterministic rank: frozen desc, suite rate desc, diff asc. No LLM judge. */
+export function rank(nodes: { node: StateNode; diff: number }[]): StateNode[] {
+  return [...nodes]
+    .sort((a, b) =>
+      Number(b.node.test_results.frozen_pass) - Number(a.node.test_results.frozen_pass) ||
+      b.node.test_results.suite_pass_rate - a.node.test_results.suite_pass_rate ||
+      a.diff - b.diff)
+    .map((x) => x.node);
+}
+export const anyAccepts = (ns: StateNode[], parentRate: number): boolean => ns.some((n) => ACCEPT(n, parentRate));

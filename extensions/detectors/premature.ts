@@ -1,2 +1,4 @@
-// detector: premature (LLM-free gate). TODO wire into loop.
-export function checkpremature():boolean{return false}
+/** Premature-stop: claims done but frozen failed -> reject, rollback. */
+export function prematureStop(claimedDone: boolean, frozenPass: boolean): boolean {
+  return claimedDone && !frozenPass;
+}

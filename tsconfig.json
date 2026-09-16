@@ -1,0 +1,1 @@
+{"compilerOptions":{"strict":true,"skipLibCheck":true,"module":"nodenext","target":"es2022","allowImportingTsExtensions":true,"types":["node"]},"include":["extensions/**/*.ts","bench/**/*.ts"]}
