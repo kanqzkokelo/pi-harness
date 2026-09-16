@@ -14,17 +14,27 @@ const MODEL_FLAG = 'opencode/muse-spark-1.3-contributor-free';
 const FALLBACK_BUDGET = 45000;
 const stockTok: Record<string, number> = {};
 const budgetOf = (t: TaskDef): number => (stockTok[t.id] !== undefined ? stockTok[t.id] * 2 : FALLBACK_BUDGET);
+/** Zero-token stock = failed measurement, not free lunch: fall back, never cap at 0. */
+const capOf = (t: TaskDef): { tokenBudget: number; estBranch: number } => {
+  const s = stockTok[t.id] ?? 0;
+  return s > 0 ? { tokenBudget: s * 2, estBranch: s } : { tokenBudget: FALLBACK_BUDGET, estBranch: 20000 };
+};
 
-function piCall(dir: string, prompt: string, timeoutMs = 300000): { out: string; tokens: number } {
+function piCall(dir: string, prompt: string, timeoutMs = 300000, retries = 2): { out: string; tokens: number } {
   let raw = '';
-  try {
-    raw = execSync(`pi -p --no-session --mode json --model ${MODEL_FLAG} -- ${JSON.stringify(prompt)}`, {
-      cwd: dir, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024,
-      env: { ...process.env, PI_APPROVE: '1' },
-    });
-  } catch (e: any) { raw = String(e?.stdout ?? '') + String(e?.message ?? ''); }
-  const toks = [...raw.matchAll(/"totalTokens":(\d+)/g)].map((m) => Number(m[1]));
-  return { out: raw.slice(-2000), tokens: toks.length ? toks[toks.length - 1] : 0 };
+  for (let a = 0; a <= retries; a++) {
+    try {
+      raw = execSync(`pi -p --no-session --mode json --model ${MODEL_FLAG} -- ${JSON.stringify(prompt)}`, {
+        cwd: dir, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024,
+        env: { ...process.env, PI_APPROVE: '1' },
+      });
+    } catch (e: any) { raw = String(e?.stdout ?? '') + String(e?.message ?? ''); }
+    const toks = [...raw.matchAll(/"totalTokens":(\d+)/g)].map((m) => Number(m[1]));
+    const n = toks.length ? toks[toks.length - 1] : 0;
+    if (n > 0 || a === retries) return { out: raw.slice(-2000), tokens: n };
+    execSync('sleep 60'); // rate-limit backoff, then retry
+  }
+  return { out: raw.slice(-2000), tokens: 0 };
 }
 
 const freshClone = (t: TaskDef): string => {
@@ -91,7 +101,7 @@ export async function main() {
     const res = await runBeam(frozen, {
       repoDir: work, suiteCmd: 'true',
       ...(stockTok[t.id] !== undefined
-        ? { tokenBudget: stockTok[t.id] * 2, estBranch: stockTok[t.id], spent: () => tokens }
+        ? { ...capOf(t), spent: () => tokens }
         : { spent: () => tokens }),
       strategies: { A: strat('minimal patch'), B: strat('alternate approach'), C: strat('edge cases first') },
     });
