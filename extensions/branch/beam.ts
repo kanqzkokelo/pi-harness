@@ -1,6 +1,6 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, copyFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { openStore } from '../state-graph/store.ts';
 import { commitNode, worktreeAdd, worktreeRemove, currentSha, diffSize } from '../state-graph/gitops.ts';
 import type { StateNode, BranchId } from '../state-graph/nodes.ts';
@@ -32,9 +32,15 @@ export async function runBeam(frozen: FrozenTest[], opts: BeamOpts) {
     const started = Date.now();
     try {
       worktreeAdd(repoDir, wt, `beam-${phase}${branch}`, parentSha);
+      const localFrozen = frozen.map((f) => {
+        const name = basename(f.path);
+        const dest = join(wt, name);
+        if (f.path !== dest && existsSync(f.path)) { copyFileSync(f.path, dest); try { copyFileSync(f.path + '.sha256', dest + '.sha256'); } catch { /* no lock file */ } }
+        return { path: dest, sha: f.sha };
+      });
       await fn(wt);
       const sha = commitNode(wt, `beam ${phase}${branch}: ${STRATS[branch]}`);
-      const v = verify(wt, frozen.map((f) => ({ ...f, path: join(wt, f.path.split('/').pop()!) })), suiteCmd);
+      const v = verify(wt, localFrozen, suiteCmd);
       const node: StateNode = {
         id: sha, parent_id: parentSha, branch_id: branch, snapshot_ref: `${sha}@${wt}`,
         subtasks: opts.subtasks ?? [], facts: [`phase=${phase}`, `strategy=${STRATS[branch]}`], actions: [],
